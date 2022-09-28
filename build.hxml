@@ -1,7 +1,8 @@
 -cp src
--cp ../../src
 -dce no
+-lib grig.midi
 -lib tink_core
 -lib thx.core
 -main Main
 # -js bin/MidiWriter.js
+--cpp bin/cpp
