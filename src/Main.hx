@@ -11,29 +11,32 @@ class Main {
 	private static function mainLoop(midiOut:MidiOut) {
 		var numBeats = 8;
 
-		var noteOns:Array<MidiNote> = [
-			for (n in 0...numBeats)
-				{
-					velocity: 64,
-					note: 50 + n,
-					length: 1
-				}
-		];
-		var noteOffs:Array<MidiMessage> = [];
-		
-		var counter:Int = 0;
-		var beatIndex:Int = 0;
-		var beatTimer = new Timer(500);
+		// set a note to play on every beat
+		var Cycle = new Cycle<MidiNote>(numBeats, i -> {
+			note: 46 + i,
+			velocity: 60,
+			length: 1
+		});
+
+		// buffer for note off messages
+		var buffer_off:Array<MidiMessage> = [];
+
+		// loop timer
+		var beatTimer = new Timer(320);
 		beatTimer.run = function() {
-			if (noteOffs.length > 0) {
-				midiOut.sendMessage(noteOffs.shift());
+			// if there is note offs in the buffer then send it
+			if (buffer_off.length > 0) {
+				midiOut.sendMessage(buffer_off.shift());
 			}
-			beatIndex = counter % numBeats;
-			var next_note_on = noteOns[beatIndex];
-			noteOffs.push(next_note_on.toNoteOffMessage());
-			midiOut.sendMessage(next_note_on.toNoteOnMessage());
-			trace('beatIndex $beatIndex counter $counter ${noteOns.length}');
-			counter++;
+
+			// get next note in Cycle
+			var next = Cycle.next();
+
+			// send next note
+			midiOut.sendMessage(next.toNoteOnMessage());
+			
+			// buffer a note off for the next note
+			buffer_off.push(next.toNoteOffMessage());
 		}
 	}
 
@@ -78,4 +81,22 @@ class MidiNoteExtensions{
 	public static function toNoteOffMessage(n:MidiNote):MidiMessage{
 		return MidiMessage.ofArray([status_note_off, n.note, n.velocity]);
 	}
+}
+
+class Cycle<T>{
+	var steps:Array<T>;
+	var counter:Int = 0;
+	var index:Int = 0;
+
+	public function new(length:Int, builder:Int->T){
+		steps = [for (n in 0...length) builder(n)];
+	}
+
+	public function next():T{
+		// trace('Cycle index $index counter $counter length ${steps.length}');
+		index = counter % steps.length;
+		counter++;
+		return steps[index];
+	}
+
 }
