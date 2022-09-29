@@ -7,7 +7,6 @@ import tink.core.Future;
 
 using Main.MidiNoteExtensions;
 
-
 class Main {
 	private static function mainLoop(midiOut:MidiOut) {
 		var pulses_per_quarter_note = 24;
@@ -22,55 +21,29 @@ class Main {
 		var ms_per_pulse:Int = Std.int(ms_per_quarter_note / pulses_per_quarter_note);
 
 		trace('tick length $ms_per_pulse buffer_length $buffer_length');
-
-		var schedule = new ScheduledCycle<MidiNote>();
-		var schedule_note_off = new ScheduledCycle<MidiMessage>();
 		
-		schedule.push(0, {
+		var midiSchedule = new MidiSchedule(message -> {
+			midiOut.sendMessage(message);
+		});
+
+		midiSchedule.schedule(0, {
 			velocity: 60,
 			note: 46,
 			length: pulses_per_quarter_note
 		});
 
-		schedule.push(64, {
+		midiSchedule.schedule(64, {
 			velocity: 60,
 			note: 43,
 			length: pulses_per_quarter_note * 0.25
 		});
 
-		var counter = 0;
-		var pulse = 0;
-		var quarter_noteTimer = new Timer(ms_per_pulse);
 
-		quarter_noteTimer.run = function() {
-			// if there is note offs in schedule then send it
-			var next_off = schedule_note_off.next();
-			if (next_off != null && next_off.pulse == pulse) {
-				midiOut.sendMessage(next_off.event);
-				schedule_note_off.advance();
-				// trace('event off at $pulse');
-			}
+		var repeater = new PulseRepeat(ms_per_pulse, buffer_length, pulse -> {
+			midiSchedule.next(pulse);
+		});
 
-			// get next note in schedule
-			var next = schedule.next();
-
-			if (next.pulse == pulse) {
-				// trace('event at $pulse');
-
-				// send next note
-				midiOut.sendMessage(next.event.toNoteOnMessage());
-
-				// buffer a note off for the next note
-				var off_at_pulse = Std.int(pulse + next.event.length);//Std.int(next.event.length * ppqn);
-				schedule_note_off.push(off_at_pulse, next.event.toNoteOffMessage());
-
-				// advance schedule
-				schedule.advance();
-			}
-			pulse = counter % buffer_length;
-			counter++;
-			// trace('$pulse');
-		};
+		repeater.start();
 	}
 
 	static function main() {
@@ -171,5 +144,65 @@ class ScheduledCycle<T> {
 
 	public function advance() {
 		counter++;
+	}
+}
+
+class PulseRepeat {
+	var tick:Int;
+	var pulse:Int;
+	var timer:Timer;
+	var on_tick:Int->Void;
+	var wrap_length:Int;
+
+	public function new(period_ms:Int, wrap_length:Int, on_tick:(pulse:Int) -> Void) {
+		tick = 0;
+		pulse = 0;
+		timer = new Timer(period_ms);
+		this.wrap_length = wrap_length;
+		this.on_tick = on_tick;
+	}
+
+	public function start() {
+		timer.run = () -> {
+			on_tick(pulse);
+			pulse = tick % wrap_length;
+			tick++;
+		}
+	}
+
+	public function stop() {
+		timer.stop();
+	}
+}
+
+class MidiSchedule {
+	var note_on:ScheduledCycle<MidiMessage>;
+	var note_off:ScheduledCycle<MidiMessage>;
+	var send_message:MidiMessage->Void;
+
+	public function new(send_message:MidiMessage->Void) {
+		note_on = new ScheduledCycle<MidiMessage>();
+		note_off = new ScheduledCycle<MidiMessage>();
+		this.send_message = send_message;
+	}
+
+	public function schedule(pulse:Int, note:MidiNote) {
+		note_on.push(pulse, note.toNoteOnMessage());
+		var off_at_pulse = Std.int(pulse + note.length);
+		note_off.push(off_at_pulse, note.toNoteOffMessage());
+	}
+
+	public function next(pulse:Int){
+		var next_on = note_on.next();
+		if(pulse == next_on.pulse){
+			send_message(next_on.event);
+			note_on.advance();
+		}
+
+		var next_off = note_off.next();
+		if(pulse == next_off.pulse){
+			send_message(next_off.event);
+			note_off.advance();
+		}
 	}
 }
